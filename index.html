@@ -1,0 +1,419 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ultimate Memory Game</title>
+
+<style>
+:root {
+  --bg:#0f172a; --card:#1e293b; --text:#fff; --accent:#38bdf8;
+}
+
+body.light { --bg:#b2d6fa; --card:#fff; --text:#000; }
+body.neon { --bg:#19eaa4; --card:#1d1951; --accent:rgb(176, 11, 241); }
+body.retro { --bg:#fef3c7; --card:#fcd34d; --accent:#b45309; }
+
+body { margin:0; font-family:Arial; background:var(--bg); color:var(--text); text-align:center; }
+
+#landing, #game { padding:20px; }
+
+/* Animated Landing */
+#landing {
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  gap:15px;
+  background:linear-gradient(270deg,#0ea5e9,#9333ea,#22c55e);
+  background-size:600% 600%;
+  animation:gradientMove 10s ease infinite;
+}
+
+#landing h1 {
+  font-size:40px;
+  animation:float 2s ease-in-out infinite;
+}
+
+#landing input, #landing select, #landing button {
+  animation:fadeUp 1s ease forwards;
+  opacity:0;
+}
+
+#landing input { animation-delay:0.3s; }
+#landing select { animation-delay:0.6s; }
+#landing button { animation-delay:0.9s; }
+
+@keyframes gradientMove {
+  0%{background-position:0% 50%;}
+  50%{background-position:100% 50%;}
+  100%{background-position:0% 50%;}
+}
+
+@keyframes float {
+  0%,100%{transform:translateY(0);} 
+  50%{transform:translateY(-10px);} 
+}
+
+@keyframes fadeUp {
+  from{opacity:0; transform:translateY(20px);} 
+  to{opacity:1; transform:translateY(0);} 
+}
+  #game {
+  display: none;
+  height: 100vh;
+  overflow-y: auto;   /* ✅ THIS FIXES IT */
+  flex-direction: column;
+  align-items: center;
+}
+.grid {
+  display: grid;
+  gap: 10px;
+  justify-content: center;
+  max-width: 90vw;        /* ✅ prevent overflow */
+  margin: auto;
+}
+.card {
+  width: clamp(40px, 8vw, 70px);
+  height: clamp(40px, 8vw, 70px);
+  cursor: pointer;
+  transition: transform 0.3s ease;
+}
+
+.card:hover {
+  transform: scale(1.08);
+}
+.inner { width:100%; height:100%; position:relative; transform-style:preserve-3d; transition:0.5s; }
+.card.flip .inner { transform:rotateY(180deg); }
+.front,.back { position:absolute; width:100%; height:100%; display:flex; align-items:center; justify-content:center; border-radius:10px; backface-visibility:hidden; }
+.front { background:var(--card); }
+.back { background:var(--accent); transform:rotateY(180deg); }
+
+.top-bar {
+  display: flex;
+  justify-content: center;
+  align-items: center;   /* ⭐ important */
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+#progressBar {
+  width: 200px;
+  height: 10px;
+  background: #333;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+#progress {
+  height: 100%;
+  width: 0%;
+  background: lime;
+  transition: 0.3s;
+}
+button, select, input {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  height: 40px;        /* ⭐ fix height */
+}
+.game-btn {
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: none;
+  background: var(--card);
+  color: var(--text);
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.game-btn:hover {
+  transform: scale(1.05);
+  background: var(--accent);
+}
+
+.game-btn.danger {
+  background: #ef4444;
+  color: white;
+}
+
+.game-btn.danger:hover {
+  background: #dc2626;
+}
+
+.game-btn.music {
+  font-size: 18px;
+}
+
+</style>
+</head>
+<body>
+
+<div id="landing">
+<h1>🧠 Ultimate Memory Game</h1>
+<input id="player" placeholder="Enter name">
+<select id="difficulty">
+<option value="4">Easy</option>
+<option value="6">Medium</option>
+<option value="8">Hard</option>
+</select>
+
+<button id="startBtn">Start Game</button>
+</div>
+
+<div id="game">
+<div class="top-bar">
+  <span id="playerName">👤 Player</span>
+  <div id="progressBar">
+    <div id="progress"></div>
+  </div>
+<span id="moves">Moves:0</span>
+<span id="timer">Time:0</span>
+<select id="theme" onchange="changeTheme()">
+<option value="">Default</option>
+<option value="light">Light</option>
+<option value="neon">Neon</option>
+<option value="retro">Retro</option>
+
+</select>
+<button class="game-btn" onclick="pauseGame()">⏸ Pause</button>
+
+</div>
+<div id="grid" class="grid"></div>
+<canvas id="chart" width="300" height="150"></canvas>
+</div>
+<audio id="flipSound"></audio>
+
+<script>
+ 
+ let matchedPairs = 0;
+  document.getElementById('startBtn').addEventListener('click', startGame);
+
+//const bgMusic = document.getElementById('bgMusic');
+//bgMusic.volume = 1;   // max volume
+//bgMusic.muted = false;
+
+  window.onerror = function(message, source, lineno, colno, error) {
+  console.log("ERROR:", message);
+};
+
+  let singlePlayer = true;
+let playerName = "";
+let first=null,second=null,lock=false;
+let moves=0,time=0,size=4;
+let timerInterval,paused=false;
+let currentPlayer=1,scores=[0,0];
+let limitedMoves=50;
+let aiMode=false;
+
+const emojis=['🍎','🍌','🍇','🍉','🍒','🥝','🍍','🥑','🍋','🍓','🍑','🥥','🥕','🌽','🍔','🍕','🍩','🍪','🍿','🍫','🍬','🍭','🥨','🧀','🍗','🥓','🍟','🥗','🍝','🍤','🍣','🍙'];
+
+
+ 
+ 
+function startGame(){
+  console.log("Start button clicked");
+  const name = document.getElementById('player').value || "Player";
+  document.getElementById('playerName').innerText = "👤 " + name;
+
+  // ✅ FIX: get difficulty size
+  size = parseInt(document.getElementById('difficulty').value);
+
+singlePlayer = true;
+  
+
+  document.getElementById('landing').style.display='none';
+  document.getElementById('game').style.display='flex';
+
+  if(!singlePlayer){
+  } else {
+   // document.getElementById('turn').innerText = "👤 " + name;
+  }
+  moves = 0;
+  time = 0;
+  matchedPairs = 0;
+  scores = [0,0];
+  first = null;
+second = null;
+lock = false;
+currentPlayer = 1;
+clearInterval(timerInterval);
+
+  setupGrid();
+  startTimer();
+
+  // ✅ music will now work (user interaction)
+  
+
+  
+  document.getElementById('moves').innerText = 'Moves:0';
+document.getElementById('timer').innerText = 'Time:0';
+
+document.getElementById('progress').style.background = "lime";
+} 
+
+function setupGrid(){
+ const grid=document.getElementById('grid'); grid.innerHTML='';
+grid.style.gridTemplateColumns = `repeat(${size}, 1fr)`;
+ let total=size*size;
+ let selected=emojis.slice(0,total/2);
+ let cards=[...selected,...selected].sort(()=>0.5-Math.random());
+
+ cards.forEach(val=>{
+  const card=document.createElement('div');
+  card.className='card';
+  card.innerHTML=`<div class='inner'><div class='front'></div><div class='back'>${val}</div></div>`;
+  card.dataset.value = val;
+card.onclick = () => flipCard(card);
+  grid.appendChild(card);
+ });
+}
+
+function flipCard(card){
+ if(lock || paused || card.classList.contains('flip')) return;
+
+ const val = card.dataset.value; // ✅ MUST
+
+ card.classList.add('flip');
+// 🔊 play sound
+
+ if(!first){
+   first = {card, val};
+ } else {
+   second = {card, val};
+   moves++;
+   document.getElementById('moves').innerText = 'Moves:' + moves;
+
+   document.getElementById('progress').style.background = "lime";
+   checkMatch();
+ }
+}
+
+
+ function checkMatch(){
+    if(first.val === second.val){
+
+  matchedPairs++;
+
+  let totalPairs = (size * size) / 2;
+  let percent = (matchedPairs / totalPairs) * 100;
+
+  document.getElementById('progress').style.width = percent + "%";
+
+  // ⭐ BONUS HERE
+  if(percent > 70){
+    document.getElementById('progress').style.background = "orange";
+  }
+  if(percent > 90){
+    document.getElementById('progress').style.background = "red";
+  }
+
+  first = null;
+  second = null;
+}
+   else {
+
+    lock = true;
+
+    setTimeout(()=>{
+      first.card.classList.remove('flip');
+      second.card.classList.remove('flip');
+
+      first = null;
+      second = null;
+      lock = false;
+
+      switchPlayer();
+    }, 800);
+
+  }
+
+  checkWin();
+}
+
+
+function switchPlayer(){
+ if(singlePlayer) return; // ❌ no switching in single mode
+
+ currentPlayer = currentPlayer === 1 ? 2 : 1;
+ document.getElementById('turn').innerText = "👥 Player " + currentPlayer;
+}
+function aiMove(){
+ let cards=[...document.querySelectorAll('.card:not(.flip)')];
+ if(cards.length<2)return;
+ flipCard(cards[0],cards[0].innerText);
+ flipCard(cards[1],cards[1].innerText);
+}
+
+function checkWin(){
+ if(document.querySelectorAll('.flip').length===size*size){
+  clearInterval(timerInterval);
+
+  document.getElementById('grid').innerHTML = `
+  <div style="text-align:center">
+    <h2>🎉 Game Completed!</h2>
+    <p>Moves: ${moves}</p>
+    <p>Time: ${time}s</p>
+    <button class="game-btn" onclick="restartGame()">🔁 Restart</button>
+  </div>
+`;
+
+ }
+
+ if(moves>=limitedMoves){
+  document.getElementById('grid').innerHTML = `
+    <h2>❌ Out of Moves!</h2>
+    <button class="game-btn" onclick="restartGame()">🔁 Try Again</button>
+  `;
+ }
+}
+
+function startTimer(){
+ time=0;
+ timerInterval=setInterval(()=>{
+  if(!paused){ time++; document.getElementById('timer').innerText='Time:'+time; }
+ },1000);
+}
+function changeTheme(){
+  const selectedTheme = document.getElementById('theme').value;
+  document.body.className = selectedTheme;
+}
+function pauseGame(){ paused=true; }
+function resumeGame(){ paused=false; }
+
+function restartGame(){
+  location.reload();
+}
+
+
+// keyboard controls
+window.addEventListener('keydown',e=>{
+ if(e.key==='r') restartGame();
+ if(e.key==='p') pauseGame();
+});
+
+// graph
+function drawGraph(){
+ let ctx=document.getElementById('chart').getContext('2d');
+ ctx.clearRect(0,0,300,150);
+ ctx.beginPath();
+ ctx.moveTo(0,150);
+ ctx.lineTo(300,150-moves*2);
+ ctx.stroke();
+}
+
+function getStars() {
+  if (moves <= size * size) return "⭐⭐⭐";
+  if (moves <= size * size * 1.5) return "⭐⭐";
+  return "⭐";
+}
+
+</script>
+
+</body>
+</html>
